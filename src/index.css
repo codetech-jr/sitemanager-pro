@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* Opcional: Si quieres personalizar fuentes más adelante, 
+   en v4 se hace directo aquí con variables de CSS, ejemplo: */
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --color-primary: #0ea5e9; /* Un azul constructor */
+}
