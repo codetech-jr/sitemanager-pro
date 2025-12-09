@@ -2,17 +2,16 @@ import { useState } from 'react';
 import InventoryList from './components/InventoryList';
 import ActivityLog from './components/ActivityLog';
 import PrintLabels from './components/PrintLabels';
-import { LayoutDashboard, History, Settings, PackageOpen } from 'lucide-react';
+import { LayoutDashboard, History, Settings } from 'lucide-react';
 
 export default function App() {
   // Estado para controlar qué "Tab" (Pestaña) estamos viendo
   const [currentTab, setCurrentTab] = useState<'STOCK' | 'HISTORY' | 'ADMIN'>('STOCK');
   
   // Este estado global sirve para refrescar todo cuando haces un movimiento
-  const [globalRefresh, setGlobalRefresh] = useState(0);
+  const [globalRefresh] = useState(0);
 
   // Función auxiliar para forzar recarga en todos lados
-  const triggerRefresh = () => setGlobalRefresh(p => p + 1);
 
   return (
     <div className="min-h-screen w-full bg-slate-950 text-slate-100 pb-24">
@@ -25,7 +24,7 @@ export default function App() {
           </h1>
           <p className="text-xs text-slate-500 font-medium tracking-wide">PANEL DE CONTROL v1.0</p>
         </div>
-        <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center font-bold text-xs shadow-lg shadow-blue-900/20">
+        <div className="h-9 w-9 rounded-full bg-linear-to-tr from-blue-600 to-indigo-500 flex items-center justify-center font-bold text-xs shadow-lg shadow-blue-900/20">
           EO
         </div>
       </header>

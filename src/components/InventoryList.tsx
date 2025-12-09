@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabaseClient';
 import type { InventoryItem } from '../types/database.types';
 import { AlertTriangle, Package, Search } from 'lucide-react';
 import TransactionFab from './TransactionFab'; // 2. Importamos el componente FAB
-import ActivityLog from "./ActivityLog";
+// import ActivityLog from "./ActivityLog";
 
 export default function InventoryList() {
   const [items, setItems] = useState<InventoryItem[]>([]);

@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import type { Database } from "../types/database.types"; // Asumimos genéricos por ahora
+// import type { Database } from "../types/database.types"; // Asumimos genéricos por ahora
 
 // Función para registrar movimiento
 export async function registrarMovimiento(
