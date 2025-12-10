@@ -112,12 +112,11 @@ export default function App() {
           <p className="text-[10px] text-slate-500 font-mono">{session.user.email}</p>
         </div>
         <div className="flex items-center gap-4">
-          // disable slint warning for jsx-a11y
-          {/* {pendingCount > 0 && ( */}
+          {(pendingCount ?? 0) > 0 && (
             <div className="text-orange-400 text-xs font-bold animate-pulse flex items-center gap-1" title={`${pendingCount} transacciones pendientes`}>
               <PackagePlus size={14} /> {pendingCount}
             </div>
-          {/* )} */}
+          )}
           <button onClick={handleLogout} className="bg-slate-900 p-2 rounded-lg text-slate-400 hover:text-red-400" title="Cerrar Sesión">
             <LogOut size={18} />
           </button>
