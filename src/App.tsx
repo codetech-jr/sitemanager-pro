@@ -1,94 +1,152 @@
-import { useState } from 'react';
+// src/App.tsx
+
+import { useState, useEffect } from 'react';
+import { supabase } from './lib/supabaseClient';
+import type { Session } from '@supabase/supabase-js';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from './lib/db';
+import { processSyncQueue, downloadDataFromServer } from './lib/syncManager';
+
+import Login from './components/Login';
 import InventoryList from './components/InventoryList';
 import ActivityLog from './components/ActivityLog';
-import PrintLabels from './components/PrintLabels';
-import { LayoutDashboard, History, Settings } from 'lucide-react';
+import AdminPanel from './components/AdminPanel';
+import TransactionFab from './components/TransactionFab';
+import { LayoutDashboard, History, Settings, LogOut, PackagePlus } from 'lucide-react';
 
 export default function App() {
-  // Estado para controlar qué "Tab" (Pestaña) estamos viendo
-  const [currentTab, setCurrentTab] = useState<'STOCK' | 'HISTORY' | 'ADMIN'>('STOCK');
+  const [session, setSession] = useState<Session | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   
-  // Este estado global sirve para refrescar todo cuando haces un movimiento
-  const [globalRefresh] = useState(0);
+  const [currentTab, setCurrentTab] = useState<'BODEGA' | 'HISTORIAL' | 'ADMIN'>('BODEGA');
+  const [, setGlobalRefresh] = useState(0);
 
-  // Función auxiliar para forzar recarga en todos lados
+  const pendingCount = useLiveQuery(() => db.pending_transactions.count(), []);
 
+  // ====> Hook 1: Maneja SÓLO la autenticación <====
+  useEffect(() => {
+    // Definimos una función asíncrona interna para manejar la lógica
+    const initAuth = async () => {
+      try {
+        // 1. Obtenemos la sesión
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) throw sessionError;
+        
+        setSession(session);
+
+        if (session) {
+          // 2. Si hay sesión, buscamos el rol de forma segura
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', session.user.id)
+            .single();
+
+          if (profileError) {
+            console.error('Error al obtener perfil:', profileError);
+            // Si falla el perfil, asignamos rol por defecto para no romper la app
+            setUserRole('bodeguero'); 
+          } else {
+            setUserRole(profile?.role || 'bodeguero');
+          }
+        }
+      } catch (error) {
+        console.error('Error crítico iniciando sesión:', error);
+        // Opcional: Cerrar sesión si hubo un error grave para obligar al re-login
+        // await supabase.auth.signOut(); 
+      } finally {
+        // ===> ESTA ES LA CLAVE <===
+        // El finally se ejecuta SIEMPRE, haya éxito o error.
+        // Esto quita la pantalla de "Verificando Credenciales..."
+        setLoading(false); 
+      }
+    };
+
+    // Ejecutamos la función
+    initAuth();
+
+    // Listener de cambios de auth (Login/Logout futuro)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setSession(session);
+      if (session) {
+        // Podrías reutilizar la lógica de fetch profile aquí también si fuera necesario
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+        setUserRole(profile?.role || 'bodeguero');
+      } else {
+        setUserRole(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ====> Hook 2: Maneja SÓLO la sincronización de datos <====
+  // Este hook se dispara DESPUÉS de que la sesión se haya establecido.
+  useEffect(() => {
+    if (session) {
+      downloadDataFromServer();
+      window.addEventListener('online', processSyncQueue);
+    }
+    return () => {
+      window.removeEventListener('online', processSyncQueue);
+    };
+  }, [session]); // Depende explícitamente de que 'session' cambie de null a un valor
+
+
+  const handleLogout = async () => await supabase.auth.signOut();
+  const handleTransactionSuccess = () => setGlobalRefresh(s => s + 1);
+
+  if (loading) {
+    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 animate-pulse">Verificando Credenciales...</div>;
+  }
+  if (!session) return <Login />;
+  
+  // (El resto del código JSX es idéntico)
   return (
-    <div className="min-h-screen w-full bg-slate-950 text-slate-100 pb-24">
-      
-      {/* 1. NAVBAR SUPERIOR (Solo Título y Avatar) */}
-      <header className="px-6 py-5 border-b border-slate-900 bg-slate-950/90 backdrop-blur sticky top-0 z-20 flex justify-between items-center">
+    <div className="min-h-screen w-full bg-slate-950 text-slate-100">
+      <header className="px-4 py-3 border-b border-slate-800 bg-slate-950/90 backdrop-blur sticky top-0 z-20 flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-black tracking-tighter text-white">
-            Site<span className="text-blue-500">Manager</span>
-          </h1>
-          <p className="text-xs text-slate-500 font-medium tracking-wide">PANEL DE CONTROL v1.0</p>
+          <h1 className="text-xl font-bold tracking-tighter text-white">SiteManager</h1>
+          <p className="text-[10px] text-slate-500 font-mono">{session.user.email}</p>
         </div>
-        <div className="h-9 w-9 rounded-full bg-linear-to-tr from-blue-600 to-indigo-500 flex items-center justify-center font-bold text-xs shadow-lg shadow-blue-900/20">
-          EO
+        <div className="flex items-center gap-4">
+          // disable slint warning for jsx-a11y
+          {/* {pendingCount > 0 && ( */}
+            <div className="text-orange-400 text-xs font-bold animate-pulse flex items-center gap-1" title={`${pendingCount} transacciones pendientes`}>
+              <PackagePlus size={14} /> {pendingCount}
+            </div>
+          {/* )} */}
+          <button onClick={handleLogout} className="bg-slate-900 p-2 rounded-lg text-slate-400 hover:text-red-400" title="Cerrar Sesión">
+            <LogOut size={18} />
+          </button>
         </div>
       </header>
-
-      {/* 2. ÁREA DE CONTENIDO (Cambiante según la Tab) */}
-      <main className="max-w-4xl mx-auto py-6">
-        
-        {currentTab === 'STOCK' && (
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-             {/* Pasamos el key para forzar que se repinte si cambia la data */}
-             {/* NOTA: Tu componente InventoryList ya incluye el botón flotante TransactionFab */}
-             <InventoryList /> 
-          </div>
-        )}
-
-        {currentTab === 'HISTORY' && (
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 px-4">
-            <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-               <History className="text-blue-500" /> Historial de Movimientos
-            </h2>
-            <ActivityLog refreshTrigger={globalRefresh} />
-          </div>
-        )}
-
-        {currentTab === 'ADMIN' && (
-          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-             {/* Reutilizamos el PrintLabels pero ahora integrado en la pantalla */}
-             <PrintLabels onClose={() => setCurrentTab('STOCK')} />
-          </div>
-        )}
-
+      <main className="pb-24">
+        {currentTab === 'BODEGA' && <InventoryList />}
+        {currentTab === 'HISTORIAL' && <ActivityLog />}
+        {currentTab === 'ADMIN' && userRole === 'admin' && <AdminPanel />}
       </main>
-
-      {/* 3. BARRA DE NAVEGACIÓN INFERIOR (ESTILO APP NATIVA) */}
-      <nav className="fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 z-40 pb-safe pt-2">
+      <TransactionFab onUpdate={handleTransactionSuccess} />
+      <nav className="fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 z-40">
         <div className="max-w-md mx-auto flex justify-around items-center h-16">
-          
-          <button 
-            onClick={() => setCurrentTab('STOCK')}
-            className={`flex flex-col items-center gap-1 transition-colors ${currentTab === 'STOCK' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            <LayoutDashboard size={24} strokeWidth={currentTab === 'STOCK' ? 3 : 2} />
+          <button onClick={() => setCurrentTab('BODEGA')} className={`flex flex-col items-center gap-1 transition-colors ${currentTab === 'BODEGA' ? 'text-blue-500' : 'text-slate-500'}`}>
+            <LayoutDashboard size={24} strokeWidth={currentTab === 'BODEGA' ? 2.5 : 2} />
             <span className="text-[10px] font-bold">Bodega</span>
           </button>
-
-          <button 
-            onClick={() => setCurrentTab('HISTORY')}
-            className={`flex flex-col items-center gap-1 transition-colors ${currentTab === 'HISTORY' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            <History size={24} strokeWidth={currentTab === 'HISTORY' ? 3 : 2} />
+          <button onClick={() => setCurrentTab('HISTORIAL')} className={`flex flex-col items-center gap-1 transition-colors ${currentTab === 'HISTORIAL' ? 'text-blue-500' : 'text-slate-500'}`}>
+            <History size={24} strokeWidth={currentTab === 'HISTORIAL' ? 2.5 : 2} />
             <span className="text-[10px] font-bold">Historial</span>
           </button>
-
-          <button 
-            onClick={() => setCurrentTab('ADMIN')}
-            className={`flex flex-col items-center gap-1 transition-colors ${currentTab === 'ADMIN' ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            <Settings size={24} strokeWidth={currentTab === 'ADMIN' ? 3 : 2} />
-            <span className="text-[10px] font-bold">Admin</span>
-          </button>
-
+          {userRole === 'admin' && (
+            <button onClick={() => setCurrentTab('ADMIN')} className={`flex flex-col items-center gap-1 transition-colors ${currentTab === 'ADMIN' ? 'text-blue-500' : 'text-slate-500'}`}>
+              <Settings size={24} strokeWidth={currentTab === 'ADMIN' ? 2.5 : 2} />
+              <span className="text-[10px] font-bold">Admin</span>
+            </button>
+          )}
         </div>
       </nav>
-
     </div>
   )
 }

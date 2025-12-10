@@ -1,17 +1,53 @@
 import { supabase } from "./supabaseClient";
-// import type { Database } from "../types/database.types"; // Asumimos genéricos por ahora
+
+// Función auxiliar: Convertir Base64 a archivo binario (Blob)
+// Necesaria para transformar la firma del canvas a un archivo subible
+async function dataUrlToBlob(dataUrl: string) {
+  const res = await fetch(dataUrl);
+  return await res.blob();
+}
 
 // Función para registrar movimiento
 export async function registrarMovimiento(
   skuId: string,
   projectId: string,
-  cantidad: number, // Negativo para salida
-  tipo: "SALIDA" | "ENTRADA"
+  cantidad: number, // Negativo para salida, positivo para entrada
+  tipo: "SALIDA" | "ENTRADA",
+  firmaDataUrl?: string // <--- Nuevo parámetro opcional para la imagen
 ) {
-  // 1. Validar Stock antes de intentar (opcional pero buena UX)
-  // En producción esto se valida a nivel de BD, pero ayudamos al UI aquí.
+  let evidenceUrl = null;
 
-  // 2. Insertar en el Libro Mayor
+  // 1. SI HAY FIRMA, LA SUBIMOS PRIMERO A STORAGE
+  if (firmaDataUrl) {
+    try {
+      const blob = await dataUrlToBlob(firmaDataUrl);
+      // Creamos un nombre único: timestamp + id_producto + .png
+      const fileName = `${Date.now()}_${skuId}.png`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("firmas") // IMPORTANTE: Asegúrate de crear este bucket en Supabase
+        .upload(fileName, blob, {
+          contentType: "image/png",
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error("Error subiendo firma a Storage:", uploadError);
+        // Continuamos sin firma si falla la subida para no bloquear la transacción
+      } else {
+        // Obtenemos la URL pública
+        const { data: publicData } = supabase.storage
+          .from("firmas")
+          .getPublicUrl(fileName);
+
+        evidenceUrl = publicData.publicUrl;
+      }
+    } catch (err) {
+      console.error("Error procesando la imagen de la firma:", err);
+    }
+  }
+
+  // 2. INSERTAR EN EL LIBRO MAYOR (Inventory Ledger)
   const { data, error } = await supabase
     .from("inventory_ledger")
     .insert([
@@ -20,7 +56,7 @@ export async function registrarMovimiento(
         sku_id: skuId,
         transaction_type: tipo,
         quantity_change: cantidad,
-        // user_id: aquí iría el ID del usuario autenticado en el futuro
+        evidence_url: evidenceUrl, // <--- Aquí guardamos la URL de la imagen (o null)
         notes: "Movimiento desde WebApp",
       },
     ])
