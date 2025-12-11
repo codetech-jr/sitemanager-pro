@@ -6,85 +6,77 @@ import { registrarMovimiento } from "./api";
 import type { IPendingTransaction } from "./db";
 
 // ====> LÓGICA DE DESCARGA DE DATOS ACTUALIZADA <====
+// En src/lib/syncManager.ts
 export async function downloadDataFromServer() {
-  console.log("SYNC: Descargando datos maestros y logs...");
+  console.log("SYNC: Descargando TODOS los datos del servidor...");
 
   try {
-    // Usamos Promise.all para hacer las 4 peticiones en paralelo
-    const [skuRes, invRes, ledgerRes, profilesRes] = await Promise.all([
-      // <--- CAMBIO: Añadimos 'profilesRes'
+    const [
+        skuRes, 
+        invRes, 
+        ledgerRes, 
+        employeesRes, 
+        attendanceRes
+    ] = await Promise.all([
       supabase.from("master_sku").select("*"),
       supabase.from("project_inventory").select("*"),
-      supabase
-        .from("inventory_ledger")
-        .select(
-          "id, transaction_type, quantity_change, created_at, master_sku(name, unit)"
-        )
-        .order("created_at", { ascending: false })
-        .limit(25),
-      supabase.from("user_profiles").select("*"), // <--- NUEVO: La consulta a la vista de perfiles
+      supabase.from("inventory_ledger")
+        .select("*, master_sku(name, unit, sku)"), // Seleccionamos todo del ledger y anidamos el SKU
+      supabase.from("employees").select("*").eq('is_active', true),
+      supabase.from("attendance_log").select("*"),
     ]);
 
-    // Comprobamos si alguna de las peticiones falló
-    if (skuRes.error || invRes.error || ledgerRes.error || profilesRes.error) {
-      // <--- CAMBIO: Añadimos chequeo para perfiles
-      console.error(
-        "Error descargando datos",
-        skuRes.error || invRes.error || ledgerRes.error || profilesRes.error // <--- CAMBIO
-      );
-      return;
-    }
+    const firstError = skuRes.error || invRes.error || ledgerRes.error || employeesRes.error || attendanceRes.error;
+    if (firstError) throw firstError;
 
-    // Usamos una transacción de Dexie para asegurar que todas las operaciones se completen
     await db.transaction(
       "rw",
-      db.master_sku,
-      db.project_inventory,
-      db.inventory_ledger,
-      db.user_profiles, // <--- NUEVO: Añadimos la tabla de perfiles a la transacción
+      [
+        db.master_sku,
+        db.project_inventory,
+        db.inventory_ledger,
+        db.employees,
+        db.attendance_log
+      ],
       async () => {
-        // Vaciamos las tablas locales antes de llenarlas con datos frescos
-        await db.master_sku.clear();
-        await db.project_inventory.clear();
-        await db.inventory_ledger.clear();
-        await db.user_profiles.clear(); // <--- NUEVO: Vaciamos la tabla de perfiles
+        // 1. LIMPIEZA
+        await Promise.all([
+            db.master_sku.clear(),
+            db.project_inventory.clear(),
+            db.inventory_ledger.clear(),
+            db.employees.clear(),
+            db.attendance_log.clear()
+        ]);
+        
+        // 2. ESCRITURA CON ADAPTACIÓN
+        await Promise.all([
+            db.master_sku.bulkPut(skuRes.data),
+            
+            // Para project_inventory, aseguremos que tiene una PK que Dexie pueda usar
+            db.project_inventory.bulkPut(invRes.data.map(item => ({...item, compound_id: `${item.project_id}_${item.sku_id}`}))),
 
-        // Guardamos el catálogo maestro
-        await db.master_sku.bulkPut(skuRes.data as any);
+            // Para ledger, aplanamos los datos para la UI
+            db.inventory_ledger.bulkPut(ledgerRes.data.map((log: any) => ({
+              ...log, // Guardamos todos los campos del log
+              sku_name: log.master_sku?.name || 'N/A',
+              sku_unit: log.master_sku?.unit || 'N/A'
+            }))),
 
-        // Adaptamos los datos de inventario
-        const inventoryWithCompoundKey = invRes.data.map((item) => ({
-          ...item,
-          compound_id: `${item.project_id}_${item.sku_id}`,
-        }));
-        await db.project_inventory.bulkPut(inventoryWithCompoundKey as any);
-
-        // Aplanamos los datos del historial
-        const flatLedgerData = ledgerRes.data.map((log: any) => ({
-          id: log.id,
-          transaction_type: log.transaction_type,
-          quantity_change: log.quantity_change,
-          created_at: log.created_at,
-          sku_name: log.master_sku?.name || "Producto eliminado",
-          sku_unit: log.master_sku?.unit || "N/A",
-        }));
-        await db.inventory_ledger.bulkPut(flatLedgerData);
-
-        // Guardamos los perfiles de usuario
-        await db.user_profiles.bulkPut(profilesRes.data as any); // <--- NUEVO: Guardamos los perfiles en Dexie
+            // PARA EMPLOYEES y ATTENDANCE, nos aseguramos que se guardan tal cual vienen de la API.
+            // Esto es correcto PORQUE en db.ts definimos sus Primary Keys ('id' y 'id' respectivamente)
+            db.employees.bulkPut(employeesRes.data),
+            db.attendance_log.bulkPut(attendanceRes.data),
+        ]);
       }
     );
 
-    console.log(
-      "SYNC: Datos maestros, logs y perfiles actualizados correctamente."
-    ); // <--- CAMBIO: Mensaje de éxito actualizado
+    console.log("SYNC: Descarga completa. Base de datos local actualizada.");
   } catch (error) {
-    console.error(
-      "SYNC: Hubo un error crítico en el proceso de descarga.",
-      error
-    );
+    console.error("SYNC: Fallo crítico en la descarga de datos.", error);
   }
 }
+
+// ... EL RESTO DE FUNCIONES SE QUEDAN IGUAL ...
 
 // ====> EL RESTO DEL CÓDIGO SE MANTIENE IGUAL <====
 
@@ -135,18 +127,22 @@ export async function addTransactionToQueue(
 
   try {
     const compoundId = `${payload.projectId}_${payload.skuId}`;
+    
+    // Actualización optimista local
     await db.project_inventory
       .where({ compound_id: compoundId })
       .modify((item) => {
         item.quantity = (item.quantity || 0) + payload.cantidad;
       });
 
+    // Guardar en cola
     await db.pending_transactions.add({
       payload,
       timestamp: Date.now(),
       status: "pending",
     });
 
+    // Intentar sincronizar si hay internet
     processSyncQueue();
   } catch (error) {
     console.error("OFFLINE: Error al añadir transacción a la cola", error);

@@ -1,69 +1,131 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../lib/db';
-import type { IInventoryItem, IMasterSku } from '../lib/db';
-import { AlertTriangle, Package, Search } from 'lucide-react';
+// src/components/EmployeeFormModal.tsx
 
-export default function InventoryList() {
-  // Leemos los datos en tiempo real desde Dexie (la base de datos local)
-  const inventoryItems = useLiveQuery(() => db.project_inventory.toArray(), []) as IInventoryItem[] | undefined;
-  const masterSkus = useLiveQuery(() => db.master_sku.toArray(), []) as IMasterSku[] | undefined;
+import { useState, useEffect } from 'react';
+import { type IEmployee } from '../lib/db';
+import { X, User, Briefcase, Hash, DollarSign, Save, Loader2 } from 'lucide-react';
 
-  // Mientras Dexie carga los datos por primera vez, mostramos un mensaje.
-  if (!inventoryItems || !masterSkus) {
-    return (
-      <div className="p-10 text-center text-slate-400">
-        Cargando bodega local...
-      </div>
-    );
-  }
+interface Props {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (employeeData: IEmployee) => Promise<void>;
+  employee: IEmployee | null; // Si nos pasan un empleado, es para editar
+}
 
-  // Unimos los datos en el cliente. Esto es ultra rápido.
-  const joinedInventory = inventoryItems.map(item => {
-    const skuData = masterSkus.find(s => s.id === item.sku_id);
-    return {
-      ...item,
-      master_sku: skuData || { name: 'Producto Desconocido', sku: 'N/A', unit: 'UND', min_stock_alert: 0, description: null }
+const initialFormData = {
+    full_name: '',
+    role: '',
+    dni: '',
+    daily_rate: 0,
+    project_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', // ID de proyecto por defecto
+    is_active: true,
+};
+
+export default function EmployeeFormModal({ isOpen, onClose, onSave, employee }: Props) {
+  const [formData, setFormData] = useState<Omit<IEmployee, 'id'>>(initialFormData);
+  const [loading, setLoading] = useState(false);
+
+  // Cuando el modal se abre para editar, llenamos el formulario con los datos del empleado
+  useEffect(() => {
+    if (employee) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFormData({
+        full_name: employee.full_name,
+        role: employee.role || '',
+        dni: employee.dni || '',
+        daily_rate: employee.daily_rate || 0,
+        project_id: employee.project_id || initialFormData.project_id,
+        is_active: employee.is_active,
+      });
+    } else {
+      // Si es para añadir nuevo, reseteamos el formulario
+      setFormData(initialFormData);
+    }
+  }, [employee, isOpen]);
+  
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value, type } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'number' ? parseFloat(value) || 0 : value,
+    }));
+  };
+  
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const dataToSave = {
+        ...formData,
+        id: employee?.id // Añadimos el ID si estamos editando
     };
-  }).sort((a, b) => a.master_sku.name.localeCompare(b.master_sku.name));
+    await onSave(dataToSave as IEmployee);
+    
+    setLoading(false);
+  };
+  
+  if (!isOpen) return null;
 
   return (
-    <div className="w-full max-w-4xl mx-auto p-4">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-          <Package className="text-blue-500" /> Inventario en Bodega
-        </h2>
-        <div className="bg-slate-800 p-2 rounded-lg flex items-center text-slate-400">
-           <Search size={18} />
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 w-full max-w-lg rounded-2xl shadow-2xl relative animate-in fade-in zoom-in-95 duration-300">
+        
+        {/* HEADER DEL MODAL */}
+        <div className="p-4 border-b border-slate-800 flex justify-between items-center">
+          <h3 className="text-white font-bold text-lg">{employee ? 'Editar Empleado' : 'Añadir Nuevo Empleado'}</h3>
+          <button onClick={onClose} className="bg-slate-800 p-2 rounded-full text-slate-400 hover:text-white"><X size={20} /></button>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {joinedInventory.map((item) => {
-          const product = item.master_sku;
-          const isLowStock = item.quantity <= product.min_stock_alert;
-
-          return (
-            <div 
-              key={item.sku_id} 
-              className={`relative bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-lg flex justify-between items-center transition-all ${isLowStock ? 'border-orange-500/50 bg-orange-950/20' : ''}`}
-            >
-              <div>
-                <span className="text-xs font-mono text-slate-400 bg-slate-900 px-2 py-1 rounded">{product.sku}</span>
-                <h3 className="text-lg font-bold text-white mt-2">{product.name}</h3>
-                <p className="text-sm text-slate-400">{product.description}</p>
-                {isLowStock && <span className="mt-2 inline-flex items-center text-xs text-orange-400 font-bold gap-1"><AlertTriangle size={12} /> Stock Crítico</span>}
-              </div>
-              <div className="text-right">
-                <div className={`text-4xl font-bold tracking-tight ${isLowStock ? 'text-orange-500' : 'text-emerald-400'}`}>{item.quantity}</div>
-                <div className="text-xs uppercase tracking-wider text-slate-500 font-bold">{product.unit}s</div>
+        {/* FORMULARIO PROFESIONAL */}
+        <form onSubmit={handleSubmit} className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+            
+            {/* Campo: Nombre Completo */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-bold text-slate-300 mb-2">Nombre Completo</label>
+              <div className="relative">
+                <User size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input required name="full_name" value={formData.full_name} onChange={handleChange} className="w-full bg-slate-800 text-white pl-10 pr-4 py-3 rounded-xl border border-slate-600 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"/>
               </div>
             </div>
-          );
-        })}
-      </div>
-      
-      {/* ¡HEMOS QUITADO EL ACTIVITY LOG DE AQUÍ! */}
 
+            {/* Campo: Cargo / Rol */}
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">Cargo / Rol</label>
+              <div className="relative">
+                <Briefcase size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input name="role" value={formData.role} onChange={handleChange} placeholder="Ej: Obrero" className="w-full bg-slate-800 text-white pl-10 pr-4 py-3 rounded-xl border border-slate-600 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"/>
+              </div>
+            </div>
+
+            {/* Campo: Cédula / DNI */}
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">Cédula / DNI</label>
+              <div className="relative">
+                <Hash size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input name="dni" value={formData.dni} onChange={handleChange} placeholder="Ej: 12345678" className="w-full bg-slate-800 text-white pl-10 pr-4 py-3 rounded-xl border border-slate-600 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"/>
+              </div>
+            </div>
+
+            {/* Campo: Tarifa por Día */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-bold text-slate-300 mb-2">Tarifa por Día ($)</label>
+              <div className="relative">
+                <DollarSign size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input required type="number" step="0.01" min="0" name="daily_rate" value={formData.daily_rate} onChange={handleChange} className="w-full bg-slate-800 text-white pl-10 pr-4 py-3 rounded-xl border border-slate-600 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"/>
+              </div>
+            </div>
+
+          </div>
+          
+          {/* BOTÓN DE ACCIÓN */}
+          <div className="mt-8 text-right">
+            <button type="submit" disabled={loading} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-3 rounded-lg flex items-center gap-2 float-right disabled:opacity-50">
+              {loading ? <Loader2 className="animate-spin" /> : <Save size={16}/>} Guardar Cambios
+            </button>
+          </div>
+
+        </form>
+      </div>
     </div>
   );
 }
