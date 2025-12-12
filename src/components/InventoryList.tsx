@@ -93,7 +93,7 @@ export default function EmployeeFormModal({ isOpen, onClose, onSave, employee }:
               <label className="block text-sm font-bold text-slate-300 mb-2">Cargo / Rol</label>
               <div className="relative">
                 <Briefcase size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                <input name="role" value={formData.role} onChange={handleChange} placeholder="Ej: Obrero" className="w-full bg-slate-800 text-white pl-10 pr-4 py-3 rounded-xl border border-slate-600 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"/>
+                <input name="role" value={formData.role || ''} onChange={handleChange} placeholder="Ej: Obrero" className="w-full bg-slate-800 text-white pl-10 pr-4 py-3 rounded-xl border border-slate-600 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"/>
               </div>
             </div>
 
@@ -102,7 +102,7 @@ export default function EmployeeFormModal({ isOpen, onClose, onSave, employee }:
               <label className="block text-sm font-bold text-slate-300 mb-2">Cédula / DNI</label>
               <div className="relative">
                 <Hash size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                <input name="dni" value={formData.dni} onChange={handleChange} placeholder="Ej: 12345678" className="w-full bg-slate-800 text-white pl-10 pr-4 py-3 rounded-xl border border-slate-600 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"/>
+                <input name="dni" value={formData.dni || ''} onChange={handleChange} placeholder="Ej: 12345678" className="w-full bg-slate-800 text-white pl-10 pr-4 py-3 rounded-xl border border-slate-600 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"/>
               </div>
             </div>
 

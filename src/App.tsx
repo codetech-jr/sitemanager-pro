@@ -142,7 +142,11 @@ export default function App() {
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="pb-24">
-        {currentTab === 'BODEGA' && <InventoryList />}
+        {currentTab === 'BODEGA' && <InventoryList isOpen={false} onClose={function (): void {
+          throw new Error("Function not implemented.");
+        } } onSave={function (): Promise<void> {
+          throw new Error("Function not implemented.");
+        } } employee={null} />}
         {currentTab === 'HISTORIAL' && <ActivityLog />}
         
         {/* Renderizado condicional para ADMIN */}

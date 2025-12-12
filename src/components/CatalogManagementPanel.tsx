@@ -42,7 +42,7 @@ export default function CatalogManagementPanel() {
   // En productos, en vez de 'desactivar', podríamos 'archivar'
   // Por simplicidad, esta función la dejamos como placeholder por ahora
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleArchive = async (productId: string) => {
+  const handleArchive = async (_productId: string) => {
       alert("Función 'Archivar' no implementada. Se haría similar a 'desactivar empleado'.");
   };
 

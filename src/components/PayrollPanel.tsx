@@ -25,7 +25,6 @@ export default function PayrollPanel() {
   // Estado para los resultados y la carga
   const [payrollData, setPayrollData] = useState<PayrollData[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Función para llamar a nuestra API de la base de datos (RPC)
   const handleGenerateReport = async () => {
@@ -35,7 +34,6 @@ export default function PayrollPanel() {
     }
 
     setLoading(true);
-    setError(null);
     setPayrollData([]);
 
     // Llamamos a la función SQL que creamos
@@ -46,7 +44,6 @@ export default function PayrollPanel() {
 
     if (error) {
       console.error("Error al calcular la nómina:", error);
-      setError("No se pudo generar el reporte. Revisa la consola.");
     } else {
       setPayrollData(data);
     }
