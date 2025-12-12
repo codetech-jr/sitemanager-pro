@@ -5,7 +5,7 @@ import { supabase } from './lib/supabaseClient';
 import type { Session } from '@supabase/supabase-js';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './lib/db';
-import { processSyncQueue, downloadDataFromServer } from './lib/syncManager'; // <--- IMPORTANTE
+import { processSyncQueue, downloadDataFromServer } from './lib/syncManager';
 
 // Componentes
 import DashboardPanel from './components/DashboardPanel';
@@ -23,25 +23,26 @@ import { LayoutDashboard, History, Settings, LogOut, PackagePlus, BarChartHorizo
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true); // Controla la pantalla de "Verificando..."
+  const [loading, setLoading] = useState(true);
   
   const [currentTab, setCurrentTab] = useState<'BODEGA' | 'HISTORIAL' | 'DASHBOARD' | 'ADMIN' | 'TAREO'>('BODEGA');
 
-  const [, setGlobalRefresh] = useState(0);
+  // ====> CORRECCIÓN 1: Estado 'Timestamp' para forzar re-renderizado <====
+  const [syncTimestamp, setSyncTimestamp] = useState(0);
+  
   const [isPrintingLabels, setIsPrintingLabels] = useState(false);
 
-  // Consultamos transacciones pendientes para el indicador UI
+  // Consultamos transacciones pendientes (Asegúrate que coincida con tu db.ts, generalmente es pending_transactions)
   const pendingCount = useLiveQuery(() => db.pending_transactions.count(), []);
 
-  // ====> EFECTO PRINCIPAL: AUTENTICACIÓN + SINCRONIZACIÓN INICIAL <====
+  // ====> EFECTO PRINCIPAL: AUTENTICACIÓN + SINCRONIZACIÓN <====
   useEffect(() => {
-    // Función centralizada para manejar la sesión y los datos
     const handleSession = async (currentSession: Session | null) => {
       try {
         setSession(currentSession);
 
         if (currentSession) {
-          // 1. Obtener Rol del Usuario (Vital para mostrar pestañas de Admin)
+          // 1. Obtener Rol
           const { data: profile } = await supabase
             .from('profiles')
             .select('role')
@@ -49,35 +50,34 @@ export default function App() {
             .single();
 
           setUserRole(profile?.role || 'bodeguero');
-
-          // 2. Quitamos la pantalla de carga para que el usuario entre rápido
           setLoading(false); 
 
-          // 3. Iniciamos la descarga de datos del servidor
+          // 2. Descargar datos de la nube (Sync Inicial)
           console.log("APP: Sesión activa. Iniciando descarga de datos...");
           await downloadDataFromServer();
-          
-          // 4. Procesamos cola si había algo pendiente
           await processSyncQueue();
+
+          // 3. Notificar a la UI que los datos están listos
+          setSyncTimestamp(Date.now());
+          console.log("APP: Sincronización completa.");
+
         } else {
-          // Si no hay sesión, limpiamos roles y dejamos de cargar
           setUserRole(null);
           setLoading(false);
         }
       } catch (error) {
-        console.error("APP: Error en la inicialización de sesión", error);
+        console.error("APP: Error en inicialización", error);
         setLoading(false);
       }
     };
 
-    // A) Verificar sesión actual al cargar la página
+    // Verificar sesión al inicio
     supabase.auth.getSession().then(({ data: { session } }) => {
       handleSession(session);
     });
 
-    // B) Escuchar cambios en tiempo real (Login / Logout)
+    // Escuchar cambios de sesión
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log(`AUTH EVENT: ${event}`);
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         handleSession(session);
       } else if (event === 'SIGNED_OUT') {
@@ -90,8 +90,7 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ====> EFECTO SECUNDARIO: LISTENER ONLINE <====
-  // Reintenta subir la cola cuando vuelve el internet mientras la app está abierta
+  // ====> CORRECCIÓN 2: Reintentar subida al volver online <====
   useEffect(() => {
     if (session) {
       window.addEventListener('online', processSyncQueue);
@@ -104,21 +103,21 @@ export default function App() {
 
   // Funciones auxiliares
   const handleLogout = async () => await supabase.auth.signOut();
-  const handleTransactionSuccess = () => setGlobalRefresh(s => s + 1);
+  
+  // Cuando el FAB guarda algo, actualizamos el timestamp para recargar las listas
+  const handleTransactionSuccess = () => setSyncTimestamp(Date.now());
 
-  // Renders de carga y login
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center flex-col gap-4 text-blue-500 animate-pulse">
         <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="font-mono text-sm">Sincronizando Sistema...</p>
+        <p className="font-mono text-sm">Cargando Sistema...</p>
       </div>
     );
   }
 
   if (!session) return <Login />;
   
-  // Render principal
   return (
     <div className="min-h-screen w-full bg-slate-950 text-slate-100 font-sans selection:bg-blue-500/30">
       
@@ -142,18 +141,20 @@ export default function App() {
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="pb-24">
-        {currentTab === 'BODEGA' && <InventoryList isOpen={false} onClose={function (): void {
-          throw new Error("Function not implemented.");
-        } } onSave={function (): Promise<void> {
-          throw new Error("Function not implemented.");
-        } } employee={null} />}
-        {currentTab === 'HISTORIAL' && <ActivityLog />}
         
-        {/* Renderizado condicional para ADMIN */}
+        {/* ====> CORRECCIÓN 3: Uso de 'key' para forzar recarga limpia <==== */}
+        {/* Nota: Asumimos que ya arreglaste InventoryList.tsx quitando las props obligatorias innecesarias */}
+        {currentTab === 'BODEGA' && <InventoryList key={syncTimestamp} />}
+        
+        {/* Usamos key también aquí para que el historial se refresque al hacer una transacción */}
+        {currentTab === 'HISTORIAL' && <ActivityLog key={syncTimestamp} />} 
+        
         {currentTab === 'ADMIN' && userRole === 'admin' && (
           <AdminPanel onPrintClick={() => setIsPrintingLabels(true)} />
         )}
+        
         {currentTab === 'DASHBOARD' && userRole === 'admin' && <DashboardPanel />}
+        
         {currentTab === 'TAREO' && (userRole === 'admin' || userRole === 'bodeguero') && <AttendancePanel />}
       </main>
 
@@ -181,7 +182,7 @@ export default function App() {
             label="Historial" 
           />
 
-          { (userRole === 'admin' || userRole === 'bodeguero') && ( // <--- CAMBIO AQUÍ
+          { (userRole === 'admin' || userRole === 'bodeguero') && (
             <NavButton 
               active={currentTab === 'TAREO'} 
               onClick={() => setCurrentTab('TAREO')} 
@@ -212,7 +213,6 @@ export default function App() {
   )
 }
 
-// Subcomponente para limpiar el código de la barra de navegación
 function NavButton({ active, onClick, icon: Icon, label }: any) {
   return (
     <button 
