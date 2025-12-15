@@ -1,8 +1,84 @@
 @import "tailwindcss";
 
 /* Opcional: Si quieres personalizar fuentes más adelante, 
-   en v4 se hace directo aquí con variables de CSS, ejemplo: */
+   en v4 se hace directo aquí con variables de CSS */
 @theme {
   --font-sans: 'Inter', system-ui, sans-serif;
   --color-primary: #0ea5e9; /* Un azul constructor */
+}
+
+/* === MODO SOL (HIGH VISIBILITY v2 - IMPROVED) === */
+
+.light-mode {
+  color-scheme: light;
+}
+
+/* 1. FONDO PRINCIPAL: Gris muy suave (no blanco puro) para dar profundidad */
+.light-mode .bg-slate-950 {
+  background-color: #f1f5f9 !important; /* Slate-100 */
+}
+
+/* 2. TARJETAS Y PANELES: Blanco Puro + Sombra suave */
+/* Esto arregla el Historial y los Items de Bodega */
+.light-mode .bg-slate-900,
+.light-mode .bg-slate-800 {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important; /* Borde sutil */
+  color: #0f172a !important; /* Texto casi negro */
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05) !important; /* Sombrita elegante */
+}
+
+/* 3. ELEMENTOS INTERACTIVOS SECUNDARIOS (Botones Bitácora) */
+/* Aquí arreglamos los botones cuadrados oscuros */
+.light-mode .bg-slate-700 {
+  background-color: #f1f5f9 !important; /* Gris claro */
+  border: 1px solid #cbd5e1 !important;
+  color: #475569 !important;
+}
+
+/* 4. HOVERS (Al pasar el mouse) */
+.light-mode .hover\:bg-slate-800:hover,
+.light-mode .hover\:bg-slate-700:hover,
+.light-mode .hover\:bg-slate-600:hover {
+  background-color: #f8fafc !important; /* Casi blanco al tocar */
+  border-color: #94a3b8 !important;
+}
+
+/* 5. TEXTOS E ICONOS */
+.light-mode .text-white,
+.light-mode .text-slate-100,
+.light-mode .text-slate-200 {
+  color: #1e293b !important; /* Slate-800 */
+}
+
+.light-mode .text-slate-300,
+.light-mode .text-slate-400,
+.light-mode .text-slate-500 {
+  color: #64748b !important; /* Slate-500 (Gris medio legible) */
+}
+
+/* 6. INPUTS (Formularios) */
+.light-mode input, 
+.light-mode select, 
+.light-mode textarea {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.light-mode input:focus, 
+.light-mode textarea:focus {
+  border-color: #3b82f6 !important; /* Azul al escribir */
+  background-color: #eff6ff !important; /* Azul muy pálido */
+}
+
+/* 7. Arreglo específico para los textos naranjas/verdes que se perdían */
+.light-mode .text-orange-400 { color: #d97706 !important; } /* Naranja más oscuro */
+.light-mode .text-emerald-400 { color: #059669 !important; } /* Verde más oscuro */
+.light-mode .text-blue-400 { color: #2563eb !important; } /* Azul más oscuro */
+
+/* Ajuste adicional para bordes generales que no sean de bg-slate */
+.light-mode .border-slate-700,
+.light-mode .border-slate-800 {
+  border-color: #cbd5e1 !important;
 }

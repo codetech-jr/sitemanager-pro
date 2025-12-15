@@ -2,11 +2,14 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { type IEmployee } from '../lib/db'; // Importamos db para sincronizar si es necesario
-import { Edit, UserPlus, UserX, Loader2 } from 'lucide-react';
+import { type IEmployee } from '../lib/db'; 
+import { Edit, UserPlus, UserX, Loader2, HardHat } from 'lucide-react';
+import { toast } from 'sonner'; // <--- Importar Sonner
+import { useProject } from '../lib/ProjectContext'; // <--- Importar Contexto
 import EmployeeFormModal from './EmployeeFormModal';
 
 export default function TeamManagementPanel() {
+  const { currentProject } = useProject(); // Obtener proyecto actual
   const [employees, setEmployees] = useState<IEmployee[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -14,42 +17,44 @@ export default function TeamManagementPanel() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<IEmployee | null>(null);
 
-  // ====> LA FUNCIÓN CORRECTA PARA REFRESCAR LA LISTA <====
   const fetchEmployees = useCallback(async () => {
+    // Si no hay proyecto seleccionado, no cargamos nada (o podríamos cargar todo si es admin global)
+    if (!currentProject) return;
+
     setLoading(true);
     try {
-      // 1. Obtenemos datos de Supabase (Fuente de verdad)
+      // 1. Obtenemos datos de Supabase filtrados por proyecto y solo activos
       const { data, error } = await supabase
         .from('employees')
         .select('*')
+        .eq('project_id', currentProject.id) // <--- FILTRO CLAVE
+        .eq('is_active', true) // Solo activos por defecto
         .order('full_name', { ascending: true });
         
-      if (error) {
-        console.error("Error cargando empleados:", error);
-      }
+      if (error) throw error;
 
       if (data) {
-        // 2. Actualizamos el estado local
         setEmployees(data as IEmployee[]);
-
-        // 3. (Opcional pero recomendado) Actualizamos Dexie para uso offline en otras partes
-        // await db.employees.clear(); 
-        // await db.employees.bulkPut(data as IEmployee[]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      toast.error("Error al cargar empleados: " + err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentProject]);
 
-  // Cargar datos al montar el componente
+  // Cargar datos al montar o cambiar de proyecto
   useEffect(() => {
     fetchEmployees();
   }, [fetchEmployees]);
 
   const handleAddNew = () => {
-    setEditingEmployee(null); // Aseguramos formulario vacío
+    if (!currentProject) {
+        toast.error("Debes seleccionar un proyecto primero.");
+        return;
+    }
+    setEditingEmployee(null); 
     setIsModalOpen(true);
   };
 
@@ -58,84 +63,113 @@ export default function TeamManagementPanel() {
     setIsModalOpen(true);
   };
 
-  const handleDeactivate = async (employeeId: string) => {
-    if (confirm("¿Estás seguro de que quieres desactivar a este empleado? No podrá registrar asistencia.")) {
-      const { error } = await supabase
-        .from('employees')
-        .update({ is_active: false })
-        .eq('id', employeeId);
-      
-      if (error) {
-        alert("Error al desactivar: " + error.message);
-      } else {
-        // Recargamos la lista usando la función centralizada
-        fetchEmployees();
+  const handleDeactivate = async (employeeId: string, employeeName: string) => {
+    if (window.confirm(`¿Estás seguro de que quieres desactivar a ${employeeName}?`)) {
+      const toastId = toast.loading("Desactivando empleado...");
+      try {
+        const { error } = await supabase
+            .from('employees')
+            .update({ is_active: false })
+            .eq('id', employeeId);
+        
+        if (error) throw error;
+
+        toast.success(`${employeeName} desactivado correctamente`, { id: toastId });
+        fetchEmployees(); // Recargar lista
+      } catch (error: any) {
+        toast.error("Error al desactivar: " + error.message, { id: toastId });
       }
     }
   };
 
-  if (loading) {
-    return <div className="p-10 text-center"><Loader2 className="animate-spin text-blue-500 mx-auto" /></div>;
+  if (!currentProject) {
+      return (
+          <div className="p-10 text-center text-slate-500 flex flex-col items-center gap-2">
+              <HardHat size={32} className="opacity-50"/>
+              <p>Selecciona una obra para gestionar el personal.</p>
+          </div>
+      );
   }
 
-  // Filtramos visualmente los activos (o podemos traerlos filtrados desde la DB)
-  const activeEmployees = employees.filter(e => e.is_active);
+  if (loading) {
+    return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-blue-500" size={32} /></div>;
+  }
 
   return (
-    <div>
+    <div className="animate-in fade-in duration-300">
       {/* HEADER con el botón de Añadir */}
-      <div className="flex justify-between items-center mb-6">
-        <h3 className="text-xl font-bold text-white">Plantilla de Personal Activo</h3>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+        <div>
+            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <HardHat className="text-blue-500"/> Personal en Obra
+            </h3>
+            <p className="text-sm text-slate-400 mt-1">Proyecto: <span className="text-blue-400 font-semibold">{currentProject.name}</span></p>
+        </div>
+        
         <button 
           onClick={handleAddNew} 
-          className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 mt-4"
+          className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2.5 rounded-lg flex items-center gap-2 shadow-lg shadow-blue-900/20 active:scale-95 transition-all"
         >
-          <UserPlus size={16} /> Añadir Nuevo Empleado
+          <UserPlus size={18} /> 
+          <span className="hidden sm:inline">Añadir Nuevo Empleado</span>
+          <span className="sm:hidden">Nuevo Empleado</span>
         </button>
       </div>
 
       {/* TABLA DE EMPLEADOS */}
-      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden">
-        {activeEmployees.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">No hay empleados activos.</div>
+      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden shadow-sm">
+        {employees.length === 0 ? (
+          <div className="p-12 text-center text-slate-500 italic">
+            No hay empleados activos registrados en este proyecto.
+          </div>
         ) : (
-          <table className="w-full text-left">
-            <thead className="bg-slate-900/50 text-xs text-slate-400 uppercase">
-              <tr>
-                <th className="p-4">Nombre Completo</th>
-                <th className="p-4 hidden md:table-cell">Rol</th>
-                <th className="p-4 hidden md:table-cell">Cédula / DNI</th>
-                <th className="p-4 text-right">Tarifa Diaria</th>
-                <th className="p-4">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {activeEmployees.map(emp => (
-                <tr key={emp.id} className="hover:bg-slate-800 transition-colors">
-                  <td className="p-4 font-bold text-white">{emp.full_name}</td>
-                  <td className="p-4 hidden md:table-cell text-slate-300 capitalize">{emp.role}</td>
-                  <td className="p-4 hidden md:table-cell font-mono text-slate-400">{emp.dni}</td>
-                  <td className="p-4 text-right font-mono text-emerald-400">${emp.daily_rate?.toFixed(2) ?? '0.00'}</td>
-                  <td className="p-4 flex items-center gap-2">
-                    <button onClick={() => handleEdit(emp)} className="p-2 text-slate-400 hover:text-blue-400 transition-colors">
-                      <Edit size={16}/>
-                    </button>
-                    <button onClick={() => handleDeactivate(emp.id)} className="p-2 text-slate-400 hover:text-red-400 transition-colors">
-                      <UserX size={16}/>
-                    </button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+                <thead className="bg-slate-900/50 text-xs text-slate-400 uppercase tracking-wider">
+                <tr>
+                    <th className="p-4">Nombre Completo</th>
+                    <th className="p-4 hidden sm:table-cell">Rol</th>
+                    <th className="p-4 hidden md:table-cell">Cédula / DNI</th>
+                    <th className="p-4 text-right">Tarifa Diaria</th>
+                    <th className="p-4 text-center">Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                {employees.map(emp => (
+                    <tr key={emp.id} className="hover:bg-slate-800/80 transition-colors group">
+                    <td className="p-4 font-bold text-white">
+                        {emp.full_name}
+                        <div className="sm:hidden text-xs text-slate-500 mt-0.5">{emp.role}</div>
+                    </td>
+                    <td className="p-4 hidden sm:table-cell text-slate-300 capitalize text-sm">
+                        <span className="bg-slate-700/50 px-2 py-1 rounded border border-slate-600/50">{emp.role}</span>
+                    </td>
+                    <td className="p-4 hidden md:table-cell font-mono text-xs text-slate-400">{emp.dni || '---'}</td>
+                    <td className="p-4 text-right font-mono text-emerald-400 font-medium">${emp.daily_rate?.toFixed(2) ?? '0.00'}</td>
+                    <td className="p-4 flex items-center justify-center gap-2">
+                        <button 
+                            onClick={() => handleEdit(emp)} 
+                            className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
+                            title="Editar"
+                        >
+                        <Edit size={18}/>
+                        </button>
+                        <button 
+                            onClick={() => handleDeactivate(emp.id, emp.full_name)} 
+                            className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                            title="Desactivar"
+                        >
+                        <UserX size={18}/>
+                        </button>
+                    </td>
+                    </tr>
+                ))}
+                </tbody>
+            </table>
+          </div>
         )}
       </div>
 
-      {/* ====> USO CORRECTO DEL MODAL SEGÚN TU SOLICITUD <==== */}
-      {/* 
-          1. onSave es ahora fetchEmployees (para recargar tras guardar).
-          2. Usamos 'employeeToEdit' en lugar de 'employee'.
-      */}
       <EmployeeFormModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

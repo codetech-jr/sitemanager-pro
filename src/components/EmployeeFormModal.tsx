@@ -1,9 +1,12 @@
 // src/components/EmployeeFormModal.tsx
+
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import type { IEmployee } from '../lib/db'; 
 import Modal from './Modal';
-import { Loader2, Save, User, Briefcase, CreditCard,  } from 'lucide-react';
+import { Loader2, Save, User, Briefcase, CreditCard } from 'lucide-react';
+import { useProject } from '../lib/ProjectContext';
+import { toast } from 'sonner'; // <--- Importar Sonner
 
 interface Props {
   isOpen: boolean;
@@ -13,26 +16,40 @@ interface Props {
 }
 
 export default function EmployeeFormModal({ isOpen, onClose, onSave, employeeToEdit }: Props) {
-  // Inicializamos daily_rate como string vacío o numero para manejar mejor el input type="number" sin ceros molestos iniciales
-  const [formData, setFormData] = useState({ full_name: '', role: '', dni: '', daily_rate: 0 });
+  const { currentProject } = useProject();
+
+  const [formData, setFormData] = useState({ 
+    full_name: '', 
+    role: '', 
+    dni: '', 
+    daily_rate: 0, 
+    project_id: '' 
+  });
+  
   const [loading, setLoading] = useState(false);
 
+  // Efecto para inicializar el formulario cuando se abre el modal o cambia el empleado a editar
   useEffect(() => {
-    if (isOpen) { // Solo reseteamos cuando se abre el modal
+    if (isOpen) { 
         if (employeeToEdit) {
             setFormData({
                 full_name: employeeToEdit.full_name,
                 role: employeeToEdit.role || '',
                 dni: employeeToEdit.dni || '',
-                // Asumimos que daily_rate viene de la BD. Usamos 'any' si tu tipo no está actualizado, 
-                // idealmente actualiza la interfaz IEmployee
-                daily_rate: (employeeToEdit as any).daily_rate || 0, 
+                daily_rate: (employeeToEdit as any).daily_rate || 0,
+                project_id: (employeeToEdit as any).project_id || currentProject?.id || '',
             });
         } else {
-            setFormData({ full_name: '', role: '', dni: '', daily_rate: 0 });
+            setFormData({ 
+                full_name: '', 
+                role: '', 
+                dni: '', 
+                daily_rate: 0,
+                project_id: currentProject?.id || '' 
+            });
         }
     }
-  }, [employeeToEdit, isOpen]);
+  }, [isOpen, employeeToEdit, currentProject]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
@@ -42,31 +59,39 @@ export default function EmployeeFormModal({ isOpen, onClose, onSave, employeeToE
     }));
   };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoading(true);
+  const handleSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      
+      if (!formData.project_id && !employeeToEdit) {
+          toast.error("Error: No hay un proyecto seleccionado asociado.");
+          return;
+      }
 
-        // La lógica de INSERT o UPDATE se queda aquí, que está bien.
+      setLoading(true);
+      const toastId = toast.loading(employeeToEdit ? "Actualizando empleado..." : "Creando empleado...");
+
+      try {
         const { error } = employeeToEdit
             ? await supabase.from('employees').update(formData).eq('id', employeeToEdit.id)
             : await supabase.from('employees').insert([formData]);
 
-        if (error) {
-            alert("Error: " + error.message);
-            setLoading(false); // <--- IMPORTANTE: Detener la carga si hay error
-        } else {
-            // ¡Éxito!
-            setLoading(false);
-            onSave(); // <--- Llama a la función del padre para que refresque.
-            onClose(); // Cierra el modal
-        }
-    };
+        if (error) throw error;
 
-  // Clases utilitarias para limpieza del JSX
+        toast.success(employeeToEdit ? "Empleado actualizado" : "Empleado creado exitosamente", { id: toastId });
+        onSave();
+        onClose();
+      } catch (error: any) {
+        console.error(error);
+        toast.error("Error al guardar: " + error.message, { id: toastId });
+      } finally {
+        setLoading(false);
+      }
+  };
+
+  // Clases utilitarias
   const labelClass = "block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1";
   const inputContainerClass = "relative group";
   const iconClass = "absolute left-3 top-3.5 text-slate-500 group-focus-within:text-blue-400 transition-colors h-5 w-5";
-  // Nota: Aquí redefinimos input-style inline para este componente específico para darle el look "Pro"
   const inputClass = "w-full bg-slate-900/80 text-white pl-10 pr-4 py-3 rounded-lg border border-slate-700/50 focus:border-blue-500 focus:bg-slate-900 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all placeholder-slate-600 shadow-inner";
 
   return (
@@ -92,7 +117,7 @@ export default function EmployeeFormModal({ isOpen, onClose, onSave, employeeToE
 
         {/* Grid de 2 Columnas */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            {/* Cédula - Ahora a la izquierda para mejor flujo de lectura (identificación primero) */}
+            {/* Cédula */}
             <div>
               <label className={labelClass} htmlFor="dni">Cédula / DNI</label>
               <div className={inputContainerClass}>
@@ -135,7 +160,7 @@ export default function EmployeeFormModal({ isOpen, onClose, onSave, employeeToE
                 type="number" 
                 step="0.01" 
                 name="daily_rate" 
-                value={formData.daily_rate || ''} // Usamos '' para que no muestre 0 al empezar a escribir si se borra
+                value={formData.daily_rate || ''} 
                 onChange={handleChange} 
                 placeholder="0.00"
                 className="w-full bg-slate-900/80 text-white pl-10 pr-4 py-3 rounded-lg border border-slate-700/50 focus:border-green-500 focus:bg-slate-900 focus:ring-4 focus:ring-green-500/10 outline-none transition-all placeholder-slate-600 shadow-inner font-mono tracking-wide" 
@@ -143,9 +168,8 @@ export default function EmployeeFormModal({ isOpen, onClose, onSave, employeeToE
           </div>
         </div>
         
-        {/* Botones de Acción - Separador superior sutil */}
+        {/* Botones de Acción */}
         <div className="pt-6 mt-4 border-t border-slate-700/50 flex justify-end gap-3">
-            {/* Botón Cancelar (Ghost variant) */}
             <button 
                 type="button" 
                 onClick={onClose}
@@ -154,7 +178,6 @@ export default function EmployeeFormModal({ isOpen, onClose, onSave, employeeToE
                 Cancelar
             </button>
 
-            {/* Botón Guardar (Solid Primary variant) */}
             <button 
                 type="submit" 
                 disabled={loading} 

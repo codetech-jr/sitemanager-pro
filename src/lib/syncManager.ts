@@ -6,27 +6,55 @@ import { registrarMovimiento } from "./api";
 import type { IPendingTransaction } from "./db";
 
 // ====> LÓGICA DE DESCARGA DE DATOS ACTUALIZADA <====
-// En src/lib/syncManager.ts
 export async function downloadDataFromServer() {
-  console.log("SYNC: Descargando TODOS los datos del servidor...");
+  console.log("SYNC: Descargando TODOS los datos del servidor (v10 - Bitácora)...");
 
   try {
+    // 1. Obtener el ID del proyecto actual del localStorage para filtrar pedidos y logs
+    const savedProject = localStorage.getItem('siteManager_currentProject');
+    const currentProjectId = savedProject ? JSON.parse(savedProject).id : null;
+
     const [
         skuRes, 
         invRes, 
         ledgerRes, 
         employeesRes, 
-        attendanceRes
+        attendanceRes,
+        reqRes,
+        reqItemsRes,
+        loansRes,
+        // NUEVO: Logs de Bitácora
+        logsRes
     ] = await Promise.all([
       supabase.from("master_sku").select("*"),
       supabase.from("project_inventory").select("*"),
       supabase.from("inventory_ledger")
-        .select("*, master_sku(name, unit, sku)"), // Seleccionamos todo del ledger y anidamos el SKU
+        .select("*, master_sku(name, unit, sku)")
+        .order("created_at", { ascending: false })
+        .limit(50), 
       supabase.from("employees").select("*").eq('is_active', true),
       supabase.from("attendance_log").select("*"),
+      
+      // Pedidos
+      currentProjectId 
+        ? supabase.from("requisitions").select("*").eq('project_id', currentProjectId).order('created_at', { ascending: false }).limit(20)
+        : supabase.from("requisitions").select("*").order('created_at', { ascending: false }).limit(20),
+        
+      // Items de Pedidos
+      supabase.from("requisition_items").select("*, master_sku(name, unit)"),
+
+      // Préstamos
+      supabase.from("active_loans").select("*, master_sku(name), employees(full_name)"),
+
+      // ===> NUEVA CONSULTA DE LOGS (BITÁCORA) <===
+      // Traemos los últimos 50 logs con el nombre del autor
+      currentProjectId 
+        ? supabase.from("site_logs").select("*, profiles(full_name)").eq('project_id', currentProjectId).order('created_at', { ascending: false }).limit(50)
+        : supabase.from("site_logs").select("*, profiles(full_name)").order('created_at', { ascending: false }).limit(50)
     ]);
 
-    const firstError = skuRes.error || invRes.error || ledgerRes.error || employeesRes.error || attendanceRes.error;
+    // Check de errores global
+    const firstError = skuRes.error || invRes.error || ledgerRes.error || employeesRes.error || attendanceRes.error || reqRes.error || reqItemsRes.error || loansRes.error || logsRes.error;
     if (firstError) throw firstError;
 
     await db.transaction(
@@ -36,7 +64,12 @@ export async function downloadDataFromServer() {
         db.project_inventory,
         db.inventory_ledger,
         db.employees,
-        db.attendance_log
+        db.attendance_log,
+        db.requisitions,
+        db.requisition_items,
+        db.active_loans,
+        // Nueva tabla en la transacción
+        db.site_logs
       ],
       async () => {
         // 1. LIMPIEZA
@@ -45,38 +78,58 @@ export async function downloadDataFromServer() {
             db.project_inventory.clear(),
             db.inventory_ledger.clear(),
             db.employees.clear(),
-            db.attendance_log.clear()
+            db.attendance_log.clear(),
+            db.requisitions.clear(),
+            db.requisition_items.clear(),
+            db.active_loans.clear(),
+            // Limpiar logs viejos
+            db.site_logs.clear()
         ]);
         
         // 2. ESCRITURA CON ADAPTACIÓN
         await Promise.all([
             db.master_sku.bulkPut(skuRes.data),
             
-            // Para project_inventory, aseguremos que tiene una PK que Dexie pueda usar
             db.project_inventory.bulkPut(invRes.data.map(item => ({...item, compound_id: `${item.project_id}_${item.sku_id}`}))),
 
-            // Para ledger, aplanamos los datos para la UI
             db.inventory_ledger.bulkPut(ledgerRes.data.map((log: any) => ({
-              ...log, // Guardamos todos los campos del log
+              ...log, 
               sku_name: log.master_sku?.name || 'N/A',
               sku_unit: log.master_sku?.unit || 'N/A'
             }))),
 
-            // PARA EMPLOYEES y ATTENDANCE, nos aseguramos que se guardan tal cual vienen de la API.
-            // Esto es correcto PORQUE en db.ts definimos sus Primary Keys ('id' y 'id' respectivamente)
             db.employees.bulkPut(employeesRes.data),
             db.attendance_log.bulkPut(attendanceRes.data),
+
+            db.requisitions.bulkPut(reqRes.data),
+            
+            db.requisition_items.bulkPut(reqItemsRes.data.map((item: any) => ({
+                ...item,
+                sku_name: item.master_sku?.name || 'Desconocido',
+                sku_unit: item.master_sku?.unit || 'UND'
+            }))),
+
+            db.active_loans.bulkPut(loansRes.data.map((loan: any) => ({
+                ...loan,
+                sku_name: loan.master_sku?.name || 'Herramienta desconocida',
+                employee_name: loan.employees?.full_name || 'Empleado desconocido'
+            }))),
+
+            // ===> GUARDADO DE LOGS DE BITÁCORA <===
+            db.site_logs.bulkPut(logsRes.data.map((log: any) => ({
+                ...log,
+                // Aplanamos el nombre del autor para facilitar la UI
+                author_name: log.profiles?.full_name || 'Usuario'
+            })))
         ]);
       }
     );
 
-    console.log("SYNC: Descarga completa. Base de datos local actualizada.");
+    console.log("SYNC: Descarga completa con Módulos de Pedidos, Herramientas y Bitácora.");
   } catch (error) {
     console.error("SYNC: Fallo crítico en la descarga de datos.", error);
   }
 }
-
-// ... EL RESTO DE FUNCIONES SE QUEDAN IGUAL ...
 
 // ====> EL RESTO DEL CÓDIGO SE MANTIENE IGUAL <====
 

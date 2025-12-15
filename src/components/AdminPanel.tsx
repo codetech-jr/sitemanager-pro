@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-// --- IMPORTAMOS LOS PANELES ---
+// --- IMPORTAMOS LOS PANELES Y SONNER ---
+import { toast } from "sonner";
 import PayrollPanel from "./PayrollPanel";
 import TeamManagementPanel from "./TeamManagementPanel";
-import CatalogManagementPanel from "./CatalogManagementPanel"; // <--- Nuevo Panel
+import CatalogManagementPanel from "./CatalogManagementPanel"; 
 
 // --- ICONOS ---
 import { Users, FileText, ShieldCheck, UserPlus, Loader2, QrCode, Package } from 'lucide-react';
@@ -19,7 +20,7 @@ interface Profile {
 }
 
 export default function AdminPanel({ onPrintClick }: { onPrintClick: () => void }) {
-  // --- ESTADO DE NAVEGACIÓN (TEAM | PAYROLL | CATALOG) ---
+  // --- ESTADO DE NAVEGACIÓN ---
   const [activeTab, setActiveTab] = useState<'TEAM' | 'PAYROLL' | 'CATALOG'>('TEAM');
 
   // --- ESTADO DE LÓGICA DE USUARIOS ---
@@ -28,7 +29,7 @@ export default function AdminPanel({ onPrintClick }: { onPrintClick: () => void 
   const [inviteEmail, setInviteEmail] = useState('');
   const [isInviting, setIsInviting] = useState(false);
 
-  // --- EFECTOS (Carga de datos de perfiles admin/bodegueros) ---
+  // --- CARGA DE PERFILES ---
   useEffect(() => {
     async function fetchProfiles() {
       try {
@@ -38,6 +39,7 @@ export default function AdminPanel({ onPrintClick }: { onPrintClick: () => void 
 
         if (error) {
           console.error("Error fetching profiles:", error);
+          toast.error("Error al cargar perfiles de usuario");
         } else if (data) {
           const formattedData = data.map((p: any) => ({
             ...p,
@@ -47,6 +49,7 @@ export default function AdminPanel({ onPrintClick }: { onPrintClick: () => void 
         }
       } catch (err) {
         console.error("Error general:", err);
+        toast.error("Ocurrió un error inesperado al cargar datos");
       } finally {
         setLoading(false);
       }
@@ -54,10 +57,13 @@ export default function AdminPanel({ onPrintClick }: { onPrintClick: () => void 
     fetchProfiles();
   }, []);
 
-  // --- HANDLERS (Invitar usuario) ---
+  // --- HANDLER INVITAR USUARIO ---
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsInviting(true);
+    
+    // Toast de carga inicial
+    const toastId = toast.loading("Enviando invitación...");
     
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -77,10 +83,12 @@ export default function AdminPanel({ onPrintClick }: { onPrintClick: () => void 
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Error al invitar usuario');
 
-      alert(`Invitación enviada a ${inviteEmail}.`);
+      // Éxito
+      toast.success(`Invitación enviada correctamente a ${inviteEmail}`, { id: toastId });
       setInviteEmail('');
     } catch (error: any) {
-      alert("Error al invitar usuario: " + error.message);
+      // Error
+      toast.error(error.message || "Error al enviar la invitación", { id: toastId });
     } finally {
       setIsInviting(false);
     }
@@ -129,13 +137,10 @@ export default function AdminPanel({ onPrintClick }: { onPrintClick: () => void 
       {/* --- ÁREA DE CONTENIDO --- */}
       <div className="min-h-[400px]">
         
-        {/* ======================================= */}
-        {/* PESTAÑA 1: GESTIONAR EQUIPO Y PERFILES  */}
-        {/* ======================================= */}
+        {/* PESTAÑA 1: GESTIONAR EQUIPO Y PERFILES */}
         {activeTab === 'TEAM' && (
           <div className="space-y-8 animate-in slide-in-from-left-4 fade-in duration-300">
             
-            {/* SECCIÓN SUPERIOR: CONTROL DE USUARIOS SISTEMA */}
             <div className="grid md:grid-cols-3 gap-6">
               
               {/* COLUMNA IZQ: ACIONES RÁPIDAS */}
@@ -226,20 +231,14 @@ export default function AdminPanel({ onPrintClick }: { onPrintClick: () => void 
           </div>
         )}
 
-
-        {/* ======================================= */}
-        {/* PESTAÑA 2: GESTIÓN DE CATÁLOGO          */}
-        {/* ======================================= */}
+        {/* PESTAÑA 2: GESTIÓN DE CATÁLOGO */}
         {activeTab === 'CATALOG' && (
             <div className="animate-in slide-in-from-right-4 fade-in duration-300">
               <CatalogManagementPanel />
             </div>
          )}
 
-
-        {/* ======================================= */}
-        {/* PESTAÑA 3: NÓMINA                       */}
-        {/* ======================================= */}
+        {/* PESTAÑA 3: NÓMINA */}
         {activeTab === 'PAYROLL' && (
           <div className="animate-in slide-in-from-right-4 fade-in duration-300">
              <PayrollPanel />
