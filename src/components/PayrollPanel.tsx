@@ -86,7 +86,6 @@ export default function PayrollPanel() {
       "Total a Pagar ($)": p.total_to_pay.toFixed(2)
     }));
     
-    const grandTotal = payrollData.reduce((sum, p) => sum + p.total_to_pay, 0);
 
     const csv = Papa.unparse(dataToExport);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
